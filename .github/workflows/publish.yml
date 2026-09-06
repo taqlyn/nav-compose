@@ -1,6 +1,7 @@
 name: Publish Compose Navigation Adapters (Maven Central)
 
-# Deploys signed Compose Navigation artifacts to Maven Central via Sonatype Central Portal API.
+# Publish after com.taqlyn:taqlyn-sdk is on Maven Central.
+# Order inside this repo: model → navigation2 → navigation3.
 
 on:
   release:
@@ -22,32 +23,38 @@ jobs:
     name: Build & Publish Compose Nav
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: "17"
           cache: gradle
-
       - name: Run tests
         run: ./gradlew test
-
       - name: Restore GPG Key
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
-          if [ -n "$GPG_PRIVATE_KEY" ]; then
-            echo "$GPG_PRIVATE_KEY" | base64 -d > $(pwd)/signing.gpg
+          if [ -z "$GPG_PRIVATE_KEY" ]; then
+            echo "::error::GPG_PRIVATE_KEY is required for Maven Central."
+            exit 1
           fi
-
-      - name: Publish to Maven Central
+          echo "$GPG_PRIVATE_KEY" | base64 -d > "${GITHUB_WORKSPACE}/signing.gpg"
+      - name: Publish model, then navigation2, then navigation3
+        env:
+          SIGNING_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+          SIGNING_PASSWORD: ${{ secrets.GPG_PASSPHRASE }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_TOKEN_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_TOKEN_PASSWORD }}
         run: |
-          ./gradlew publishAndReleaseToMavenCentral \
-            -Psigning.keyId="${{ secrets.GPG_KEY_ID }}" \
-            -Psigning.password="${{ secrets.GPG_PASSPHRASE }}" \
-            -Psigning.secretKeyRingFile="$(pwd)/signing.gpg" \
-            -PsonatypeUsername="${{ secrets.SONATYPE_TOKEN_USERNAME }}" \
-            -PsonatypePassword="${{ secrets.SONATYPE_TOKEN_PASSWORD }}" || echo "Publication completed."
+          publish_mod() {
+            ./gradlew "$1" \
+              -Psigning.keyId="$SIGNING_KEY_ID" \
+              -Psigning.password="$SIGNING_PASSWORD" \
+              -Psigning.secretKeyRingFile="${GITHUB_WORKSPACE}/signing.gpg" \
+              -PsonatypeUsername="$SONATYPE_USERNAME" \
+              -PsonatypePassword="$SONATYPE_PASSWORD"
+          }
+          publish_mod :model:publishAndReleaseToMavenCentral
+          publish_mod :navigation2:publishAndReleaseToMavenCentral
+          publish_mod :navigation3:publishAndReleaseToMavenCentral
