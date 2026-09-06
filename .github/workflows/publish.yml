@@ -25,36 +25,28 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
           cache: gradle
       - name: Run tests
         run: ./gradlew test
-      - name: Restore GPG Key
+      - name: Publish model, then navigation2, then navigation3
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.SONATYPE_TOKEN_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.SONATYPE_TOKEN_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.GPG_KEY_ID }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           if [ -z "$GPG_PRIVATE_KEY" ]; then
             echo "::error::GPG_PRIVATE_KEY is required for Maven Central."
             exit 1
           fi
-          echo "$GPG_PRIVATE_KEY" | base64 -d > "${GITHUB_WORKSPACE}/signing.gpg"
-      - name: Publish model, then navigation2, then navigation3
-        env:
-          SIGNING_KEY_ID: ${{ secrets.GPG_KEY_ID }}
-          SIGNING_PASSWORD: ${{ secrets.GPG_PASSPHRASE }}
-          SONATYPE_USERNAME: ${{ secrets.SONATYPE_TOKEN_USERNAME }}
-          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_TOKEN_PASSWORD }}
-        run: |
+          export ORG_GRADLE_PROJECT_signingInMemoryKey="$(printf '%s' "$GPG_PRIVATE_KEY" | base64 -d)"
           publish_mod() {
-            ./gradlew "$1" \
-              -Psigning.keyId="$SIGNING_KEY_ID" \
-              -Psigning.password="$SIGNING_PASSWORD" \
-              -Psigning.secretKeyRingFile="${GITHUB_WORKSPACE}/signing.gpg" \
-              -PsonatypeUsername="$SONATYPE_USERNAME" \
-              -PsonatypePassword="$SONATYPE_PASSWORD"
+            ./gradlew "$1"
           }
           publish_mod :model:publishAndReleaseToMavenCentral
           publish_mod :navigation2:publishAndReleaseToMavenCentral
